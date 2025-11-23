@@ -1,0 +1,221 @@
+name: Build and Release VNDB Plugin
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 1. Checkout the plugin repository
+      - name: Checkout plugin repository
+        uses: actions/checkout@v4
+        with:
+          path: plugin
+          fetch-depth: 0
+
+      # 2. Setup Node.js with caching
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # 3. Setup pnpm with caching
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 8
+          run_install: false
+
+      # 4. Get pnpm store directory for caching
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      # 5. Cache pnpm store
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      # 6. Cache gamevault-backend repository
+      - name: Cache gamevault-backend repo
+        id: cache-backend
+        uses: actions/cache@v4
+        with:
+          path: gamevault-backend
+          key: gamevault-backend-${{ hashFiles('plugin/.backend-version') }}-${{ github.run_id }}
+          restore-keys: |
+            gamevault-backend-${{ hashFiles('plugin/.backend-version') }}-
+            gamevault-backend-
+
+      # 7. Clone gamevault-backend if not cached
+      - name: Clone gamevault-backend
+        if: steps.cache-backend.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/Kamdzy/gamevault-backend.git
+          cd gamevault-backend
+          echo "Backend cloned at commit: $(git rev-parse HEAD)"
+
+      # 8. Create plugins directory structure
+      - name: Setup plugin directory
+        run: |
+          mkdir -p gamevault-backend/.local/plugins/Gamevault-VNDB-Plugin
+          cp -r plugin/* gamevault-backend/.local/plugins/Gamevault-VNDB-Plugin/
+          ls -la gamevault-backend/.local/plugins/Gamevault-VNDB-Plugin/
+
+      # 9. Install dependencies with frozen lockfile
+      - name: Install dependencies
+        working-directory: gamevault-backend
+        run: |
+          pnpm install --frozen-lockfile --prefer-offline
+
+      # 10. Build the project
+      - name: Build plugin
+        working-directory: gamevault-backend
+        run: |
+          pnpm build
+          ls -la dist/.local/plugins/Gamevault-VNDB-Plugin/
+
+      # 11. Fetch all tags and history for version comparison
+      - name: Fetch tags and history
+        working-directory: plugin
+        run: |
+          git fetch --tags --force --unshallow 2>/dev/null || git fetch --tags --force
+          echo "Available tags:"
+          git tag -l
+          echo "Recent commits:"
+          git log --oneline -10
+
+      # 12. Get version and generate release notes
+      - name: Get version and generate release notes
+        id: get_version
+        working-directory: plugin
+        run: |
+          # Read current package.json version as fallback
+          if [ -f "package.json" ]; then
+            FALLBACK_VERSION=$(node -p "require('./package.json').version")
+          else
+            FALLBACK_VERSION="1.0.0"
+          fi
+          echo "Package.json version: $FALLBACK_VERSION"
+
+          # Get the latest release version
+          LATEST_RELEASE=$(curl -s -H "Authorization: token ${{ secrets.REGISTRY_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/latest")
+          
+          if echo "$LATEST_RELEASE" | grep -q "tag_name"; then
+            LAST_TAG=$(echo "$LATEST_RELEASE" | grep -o '"tag_name": *"[^"]*"' | sed 's/"tag_name": *"\(.*\)"/\1/')
+            LAST_VERSION=$(echo "$LAST_TAG" | sed 's/^v//')
+            echo "Last release tag: $LAST_TAG"
+            echo "Last release version (normalized): $LAST_VERSION"
+          else
+            echo "No previous release found, using package.json version as base"
+            LAST_VERSION="$FALLBACK_VERSION"
+            LAST_TAG=""
+          fi
+
+          # Parse version and increment patch
+          if [[ $LAST_VERSION =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            MAJOR="${BASH_REMATCH[1]}"
+            MINOR="${BASH_REMATCH[2]}"
+            PATCH="${BASH_REMATCH[3]}"
+            PATCH=$((PATCH + 1))
+            NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+          else
+            NEW_VERSION="$FALLBACK_VERSION"
+          fi
+
+          echo "New version: $NEW_VERSION (will be tagged as v$NEW_VERSION)"
+          echo "version=$NEW_VERSION" >> $GITHUB_ENV
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+          # Generate commit log since last release
+          COMMIT_LOG=""
+          if [ -n "$LAST_TAG" ]; then
+            echo "Getting commits since $LAST_TAG..."
+            
+            # Check if tag exists locally
+            if git tag -l | grep -q "^$LAST_TAG$"; then
+              # Get commits including merges
+              COMMITS=$(git log "$LAST_TAG..HEAD" --pretty=format:"- %s (%h)" 2>&1)
+              
+              if [ $? -eq 0 ] && [ -n "$COMMITS" ] && ! echo "$COMMITS" | grep -q "fatal\|error"; then
+                COMMIT_COUNT=$(echo "$COMMITS" | wc -l)
+                
+                if [ $COMMIT_COUNT -gt 10 ]; then
+                  COMMIT_LOG="## 🎉 What's Changed\n\n"
+                  COMMIT_LOG+=$(echo "$COMMITS" | head -10)
+                  REMAINING=$((COMMIT_COUNT - 10))
+                  COMMIT_LOG+="\n\n_...and $REMAINING more commit(s)_"
+                elif [ $COMMIT_COUNT -gt 0 ]; then
+                  COMMIT_LOG="## 🎉 What's Changed\n\n$COMMITS"
+                else
+                  COMMIT_LOG="## 🎉 What's Changed\n\n- No new commits since last release"
+                fi
+                
+                echo "Found $COMMIT_COUNT commit(s)"
+              else
+                echo "WARNING: Could not get commit log"
+                COMMIT_LOG="## 🎉 What's Changed\n\n- See commit history for changes since $LAST_TAG"
+              fi
+            else
+              echo "WARNING: Tag $LAST_TAG not found locally"
+              COMMIT_LOG="## 🎉 What's Changed\n\n- See commit history for changes since $LAST_TAG"
+            fi
+          else
+            COMMIT_LOG="## 🎉 What's Changed\n\n- Initial release"
+          fi
+
+          # Add full changelog link
+          if [ -n "$LAST_TAG" ]; then
+            COMMIT_LOG+="\n\n**Full Changelog**: https://github.com/${{ github.repository }}/compare/$LAST_TAG...v$NEW_VERSION"
+          fi
+
+          # Save commit log to file
+          echo -e "$COMMIT_LOG" > commit_log.txt
+          echo "Commit log saved"
+
+      # 13. Create release archive
+      - name: Create release archive
+        run: |
+          cd gamevault-backend/dist/.local/plugins
+          zip -r Gamevault-VNDB-Plugin-v${{ env.version }}.zip Gamevault-VNDB-Plugin/
+          mv Gamevault-VNDB-Plugin-v${{ env.version }}.zip ${{ github.workspace }}/
+          echo "Archive created: Gamevault-VNDB-Plugin-v${{ env.version }}.zip"
+
+      # 14. Create GitHub Release
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ env.version }}
+          name: Release v${{ env.version }}
+          body_path: plugin/commit_log.txt
+          files: |
+            Gamevault-VNDB-Plugin-v${{ env.version }}.zip
+          draft: false
+          prerelease: false
+        env:
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+
+      # 15. Output summary
+      - name: Job Summary
+        run: |
+          echo "# 🎉 Release v${{ env.version }} Created!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📦 Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- Gamevault-VNDB-Plugin-v${{ env.version }}.zip" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 📝 Release Notes" >> $GITHUB_STEP_SUMMARY
+          cat plugin/commit_log.txt >> $GITHUB_STEP_SUMMARY
