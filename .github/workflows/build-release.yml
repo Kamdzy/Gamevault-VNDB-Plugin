@@ -12,7 +12,7 @@ permissions:
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
-    
+
     steps:
       # 1. Checkout the plugin repository
       - name: Checkout plugin repository
@@ -21,11 +21,24 @@ jobs:
           path: plugin
           fetch-depth: 0
 
+      # 1.5. Ensure backend version
+      - name: Ensure backend version
+        run: |
+          if [ ! -f plugin/.backend-version ]; then
+            BACKEND_SHA=$(curl -s https://api.github.com/repos/Kamdzy/gamevault-backend/commits/master | grep -o '"sha": *"[^"]*"' | head -1 | sed 's/"sha": *"\(.*\)"/\1/')
+            echo "$BACKEND_SHA" > plugin/.backend-version
+            echo "Created .backend-version with latest SHA: $BACKEND_SHA"
+          else
+            echo ".backend-version exists: $(cat plugin/.backend-version)"
+          fi
+          BACKEND_VERSION=$(cat plugin/.backend-version)
+          echo "BACKEND_VERSION=$BACKEND_VERSION" >> $GITHUB_ENV
+
       # 2. Setup Node.js with caching
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
       # 3. Setup pnpm with caching
       - name: Setup pnpm
@@ -55,10 +68,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: gamevault-backend
-          key: gamevault-backend-${{ hashFiles('plugin/.backend-version') }}-${{ github.run_id }}
-          restore-keys: |
-            gamevault-backend-${{ hashFiles('plugin/.backend-version') }}-
-            gamevault-backend-
+          key: gamevault-backend-${{ env.BACKEND_VERSION }}
 
       # 7. Clone gamevault-backend if not cached
       - name: Clone gamevault-backend
@@ -66,7 +76,14 @@ jobs:
         run: |
           git clone https://github.com/Kamdzy/gamevault-backend.git
           cd gamevault-backend
-          echo "Backend cloned at commit: $(git rev-parse HEAD)"
+          BACKEND_SHA=$(cat ../plugin/.backend-version)
+          if [ -n "$BACKEND_SHA" ]; then
+            git checkout "$BACKEND_SHA"
+            echo "Checked out backend at commit: $(git rev-parse HEAD)"
+          else
+            echo "ERROR: .backend-version is empty or invalid"
+            exit 1
+          fi
 
       # 8. Create plugins directory structure
       - name: Setup plugin directory
@@ -114,7 +131,7 @@ jobs:
           # Get the latest release version
           LATEST_RELEASE=$(curl -s -H "Authorization: token ${{ secrets.REGISTRY_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/releases/latest")
-          
+
           if echo "$LATEST_RELEASE" | grep -q "tag_name"; then
             LAST_TAG=$(echo "$LATEST_RELEASE" | grep -o '"tag_name": *"[^"]*"' | sed 's/"tag_name": *"\(.*\)"/\1/')
             LAST_VERSION=$(echo "$LAST_TAG" | sed 's/^v//')
