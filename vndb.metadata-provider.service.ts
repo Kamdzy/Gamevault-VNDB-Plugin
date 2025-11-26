@@ -246,7 +246,7 @@ export class VndbMetadataProviderService extends MetadataProvider {
     visualNovel: VndbVisualNovel
   ): Promise<GameMetadata> {
     return {
-      age_rating: 18,
+      age_rating: 99,
       provider_slug: this.slug,
       provider_data_id: visualNovel.id?.toString(),
       provider_data_url: "https://vndb.org/" + visualNovel.id?.toString(),
