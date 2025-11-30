@@ -87,7 +87,9 @@ export class VndbMetadataProviderService extends MetadataProvider {
         }, response: ${errorText.substring(0, 200)}`
       );
       throw new Error(
-        `VNDB API returned error status ${response.status}: ${errorText.substring(0, 200)}`
+        `VNDB API returned error status ${
+          response.status
+        }: ${errorText.substring(0, 200)}`
       );
     }
 
@@ -291,7 +293,11 @@ export class VndbMetadataProviderService extends MetadataProvider {
             } as TagMetadata)
         ) || [],
       cover: await this.downloadImage(visualNovel.image?.url),
-      background: undefined,
+      background: await this.downloadImage(
+        visualNovel.screenshots && visualNovel.screenshots.length > 0
+          ? visualNovel.screenshots[0].url
+          : undefined
+      ),
     } as GameMetadata;
   }
 
@@ -354,11 +360,11 @@ export class VndbMetadataProviderService extends MetadataProvider {
     if (this.requestTimestamps.length >= this.MAX_REQUESTS_PER_5_MIN) {
       const oldestRequest = this.requestTimestamps[0];
       const waitTime = this.RATE_LIMIT_WINDOW - (now - oldestRequest) + 100; // +100ms buffer
-      
+
       if (waitTime > 0) {
         this.logger.warn(
           `Rate limit approaching (${this.requestTimestamps.length}/${this.MAX_REQUESTS_PER_5_MIN} requests). ` +
-          `Sleeping ${Math.ceil(waitTime / 1000)} seconds...`
+            `Sleeping ${Math.ceil(waitTime / 1000)} seconds...`
         );
         await this.delay(waitTime);
       }
