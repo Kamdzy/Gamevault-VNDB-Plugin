@@ -120,7 +120,7 @@ export class VndbMetadataProviderService extends MetadataProvider {
       );
 
       if (validGames.length === 0) {
-        this.logger.warn(`No valid VNDB results found for query: ${query}`);
+        // this.logger.warn(`No valid VNDB results found for query: ${query}`);
         // Return empty array only when legitimately no results found (not an error)
         return [];
       }
