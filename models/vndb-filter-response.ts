@@ -1,4 +1,4 @@
-import { VndbVisualNovel } from "./vndb-visual-novel";
+import { VndbVisualNovel } from "./vndb-visual-novel.js";
 
 export interface VndbFilterResponse 
 {

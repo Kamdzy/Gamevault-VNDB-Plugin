@@ -38,7 +38,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # 22+: the backend now requires Node >=22.22.3 via @nestjs/cli 12
+          # (@angular-devkit/schematics 22 declares ^22.22.3 || ^24.15.0).
+          node-version: "22"
 
       # 3. Setup pnpm with caching
       - name: Setup pnpm

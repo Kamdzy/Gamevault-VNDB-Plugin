@@ -1,12 +1,12 @@
 import { Injectable } from "@nestjs/common";
-import { DeveloperMetadata } from "src/modules/metadata/developers/developer.metadata.entity";
-import { GameMetadata } from "src/modules/metadata/games/game.metadata.entity";
-import { MinimalGameMetadataDto } from "src/modules/metadata/games/minimal-game.metadata.dto";
-import { GenreMetadata } from "src/modules/metadata/genres/genre.metadata.entity";
-import { MetadataProvider } from "src/modules/metadata/providers/abstract.metadata-provider.service";
-import { TagMetadata } from "src/modules/metadata/tags/tag.metadata.entity";
-import { VndbFilterResponse } from "./models/vndb-filter-response";
-import { VndbVisualNovel } from "./models/vndb-visual-novel";
+import { DeveloperMetadata } from "../../../src/modules/metadata/developers/developer.metadata.entity.js";
+import { GameMetadata } from "../../../src/modules/metadata/games/game.metadata.entity.js";
+import { MinimalGameMetadataDto } from "../../../src/modules/metadata/games/minimal-game.metadata.dto.js";
+import { GenreMetadata } from "../../../src/modules/metadata/genres/genre.metadata.entity.js";
+import { MetadataProvider } from "../../../src/modules/metadata/providers/abstract.metadata-provider.service.js";
+import { TagMetadata } from "../../../src/modules/metadata/tags/tag.metadata.entity.js";
+import { VndbFilterResponse } from "./models/vndb-filter-response.js";
+import { VndbVisualNovel } from "./models/vndb-visual-novel.js";
 
 @Injectable()
 export class VndbMetadataProviderService extends MetadataProvider {
@@ -298,7 +298,10 @@ export class VndbMetadataProviderService extends MetadataProvider {
           ? visualNovel.screenshots[0].url
           : undefined
       ),
-    } as GameMetadata;
+    // GameMetadata extends a base entity with required id/created_at/
+    // entity_version, which a literal cannot supply. Same cast the DLSite
+    // and Steam plugins already use.
+    } as unknown as GameMetadata;
   }
 
   private async mapMinimalGameMetadata(

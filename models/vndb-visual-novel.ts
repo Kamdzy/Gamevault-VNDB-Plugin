@@ -1,7 +1,7 @@
-import { VndbExternalLink } from "./vndb-external-link";
-import { VndbImage } from "./vndb-image";
-import { VndbProducer } from "./vndb-producer";
-import { VndbTag } from "./vndb-tag";
+import { VndbExternalLink } from "./vndb-external-link.js";
+import { VndbImage } from "./vndb-image.js";
+import { VndbProducer } from "./vndb-producer.js";
+import { VndbTag } from "./vndb-tag.js";
 
 export interface VndbVisualNovel
 {
