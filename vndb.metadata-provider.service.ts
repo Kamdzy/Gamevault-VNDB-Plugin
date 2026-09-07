@@ -15,6 +15,40 @@ export class VndbMetadataProviderService extends MetadataProvider {
   readonly name = "VNDB";
   readonly priority = 20;
 
+  /**
+   * Recognises a VNDB visual-novel id inside a filename version tag, so the
+   * backend can fetch the entry directly instead of guessing from the title.
+   *
+   * Requires the literal `vndb` prefix, e.g. `vndb5755` -> `v5755`. That is
+   * load-bearing and the reason this pattern is safe: the naming convention
+   * USED to write VN ids as a bare `v<digits>`, which is indistinguishable
+   * from an ordinary version number (`v1.2`, `v20524`). 2,773 plain `v…`
+   * segments exist in the live library and matching them would be catastrophic
+   * — the overwhelming majority are versions, not VNDB ids. Legacy
+   * `v<digits>` tags are therefore deliberately UNMATCHED and fall through to
+   * title search; only files re-tagged with the `vndb` prefix take the fast
+   * path.
+   *
+   * Release ids (`vndbR112735`) are intentionally NOT claimed.
+   * getByProviderDataIdOrFail() queries the `/kana/vn` endpoint filtered on a
+   * VN id, so a release id would not resolve there. Supporting them would need
+   * a separate release -> VN lookup. The pattern cannot match them anyway:
+   * `R` is not a digit, so `vndbR…` simply fails.
+   *
+   * NOTE ON LIVE DATA: zero library filenames carry a `vndb` tag yet — the
+   * userscript prefix migration is recent. Validated against synthetic input
+   * only; revisit once tagged files land.
+   */
+  override hintPatterns = [/vndb(\d+)/i];
+
+  /**
+   * VNDB ids are `v` + the numeric id. The tag carries only the digits, so the
+   * canonical prefix is restored here.
+   */
+  override decodeHint(rawHint: string): string {
+    return `v${rawHint}`;
+  }
+
   // VNDB API Rate Limits: 200 requests per 5 minutes, 1 second execution time per minute
   private readonly MAX_REQUESTS_PER_5_MIN = 200;
   private readonly RATE_LIMIT_WINDOW = 5 * 60 * 1000; // 5 minutes in ms
